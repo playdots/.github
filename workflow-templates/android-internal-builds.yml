@@ -12,9 +12,9 @@ env:
     UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
     UPM_AUTH: ${{ secrets.UPM_AUTH }}
     BUILDY_BUCKET: ${{ secrets.AWS_BUILDY_BUCKET }}
-    BUILD_NAME: MatchBox
+    BUILD_NAME: GameName
     TARGET: Android #options(Android, iOS)
-    STABILITY: Develop #options (Develop, Release)
+    STABILITY: Develop #options (Develop, Release, Prototype)
     FAKE_BUILD: ${{ false }} #if true will skip the builder process, this is useful to debug other actions faster.
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
           key: ${{ github.workflow }}-Library-${{ github.sha }}
           restore-keys: |
             ${{ github.workflow }}-Library
+      
       # Sets up the NPM registry authentication for the Unity Package Manager.
       - name: Set UPM auth
         shell: bash
@@ -54,7 +55,8 @@ jobs:
           buildName: ${{ env.BUILD_NAME }}-${{ env.STABILITY }}
           targetPlatform: ${{ env.TARGET }}
           buildMethod: Envelope.Builder.Editor.CI.Build
-          customParameters: '-preprocessId CiSandboxDev-Android -Development'
+          customParameters: '-preprocessId AndroidSandboxDev -Development' 
+          #customParameters Can include any flags from https://docs.unity3d.com/ScriptReference/BuildOptions.html (e.g -Development shown above)
       
       - name: Unity - Builder - Fake
         if: env.FAKE_BUILD == 'true'
