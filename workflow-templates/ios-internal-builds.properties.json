@@ -1,0 +1,5 @@
+{
+  "name": "iOS Internal Builds",
+  "description": "A CI Workflow to build iOS IPA for internal destribution through build.io",
+  "iconName": "ios-icon"
+}

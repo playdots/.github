@@ -1,0 +1,141 @@
+name: iOS Internal Build
+
+# Controls when the action will run.
+on:
+  workflow_dispatch:
+
+env:
+    UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+    UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+    UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+    UPM_AUTH: ${{ secrets.UPM_AUTH }}
+    BUILDY_BUCKET: ${{ secrets.AWS_BUILDY_BUCKET }}
+    BUILD_NAME: GameName
+    TARGET: iOS #options(Android, iOS)
+    STABILITY: Develop #options (Develop, Release, Prototype)
+    FAKE_BUILD: ${{ false }} #if true will skip the builder process, this is useful to debug other actions faster.
+
+jobs:
+  buildUnity:
+    name: Build Unity Project
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          submodules: 'true'
+          lfs: 'true'
+
+      # Cache
+      - uses: actions/cache@v2.1.3
+        with:
+          path: Library
+          key: ${{ github.workflow }}-Library-${{ github.sha }}
+          restore-keys: |
+            ${{ github.workflow }}-Library
+      # Sets up the NPM registry authentication for the Unity Package Manager.
+      - name: Set UPM auth
+        shell: bash
+        run: |
+          mkdir $RUNNER_TEMP/_github_home
+          touch $RUNNER_TEMP/_github_home/.upmconfig.toml
+          echo "$UPM_AUTH" > $RUNNER_TEMP/_github_home/.upmconfig.toml
+        env:
+          BUILDY_DIRECTORY: ${{env.BUILD_NAME}}/${{env.TARGET}}/${{env.STABILITY}}
+
+      # Build
+      - name: Unity - Builder
+        if: env.FAKE_BUILD == 'false'
+        id: builder
+        uses: hdalaq/unity-builder@activation-import-fix
+        with:
+          targetPlatform: ${{ env.TARGET }}
+          buildMethod: Envelope.Builder.Editor.CI.Build
+          customParameters: '-preprocessId iOSSandboxDev -Development' 
+          #customParameters Can include any flags from https://docs.unity3d.com/ScriptReference/BuildOptions.html (e.g -Development shown above)
+
+      # Output
+      - uses: actions/upload-artifact@v2
+        with:
+          name: build-iOS
+          path: build/iOS
+
+  buildEnterpriseIPA:
+    name: Build Enterprise IPA
+    runs-on: macos-latest
+    needs: buildUnity
+    env:
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      IOS_BUILD_PATH: ${{ format('{0}/build/iOS', github.workspace) }}
+    steps:
+      - id: target
+        uses: ASzc/change-string-case-action@v1
+        with:
+          string: ${{ env.TARGET }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Download iOS Artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: build-iOS
+          path: build #Unpacks the iOS folder inside build so full path is build/iOS
+
+      - name: Cache Fastlane Dependencies
+        uses: actions/cache@v2
+        with:
+          path: vendor/bundle
+          key: ${{ runner.os }}-${{ hashFiles('**/Gemfile.lock') }}
+
+      #NOTE - POD CACHING IS IN PROGRESS (BRB)
+      # - name: Cache Pod
+      #   uses: actions/cache@v2
+      #   id: podsCache
+      #   with:
+      #     path: |
+      #       ${{ env.IOS_BUILD_PATH }}/Pods
+      #       ${{ env.IOS_BUILD_PATH }}/Podfile.lock
+      #       ${{ env.IOS_BUILD_PATH }}/Unity-iPhone.xcworkspace
+
+      #     key: ${{ runner.os }}-pods-${{ hashFiles(format('{0}/Podfile', env.IOS_BUILD_PATH)) }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-pods-
+
+      - name: Install Fastlane
+        run: bundle install
+
+      - name: Install Pods
+        run: |
+          (cd $IOS_BUILD_PATH;bundle exec pod check || bundle exec pod install --verbose)
+      - name: Build IPA
+        run: |
+         find $IOS_BUILD_PATH -type f -name "**.sh" -exec chmod +x {} \;
+         bundle exec fastlane ios buildIPA
+        env:
+          BUILDY_DIRECTORY: ${{env.BUILD_NAME}}/${{steps.target.outputs.uppercase}}/${{env.STABILITY}}
+
+      # Configures AWS credentials for AWS CLI.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload to Buildy
+        uses: playdots/buildy-uploader-action@master
+        with:
+          build-directory: $DIR
+        env:
+          DIR: outputs
+
+      - name: Cleanup to avoid storage limit
+        # if: always()
+        uses: geekyeggo/delete-artifact@v1
+        with:
+          name: build-iOS

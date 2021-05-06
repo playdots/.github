@@ -1,4 +1,4 @@
-name: Android Internal Builds
+name: Android Internal Build
 
 # This workflow is setup to make Android builds and upload them to Buildy.io
 
