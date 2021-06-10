@@ -1,5 +1,0 @@
-{
-  "name": "Android Internal Builds",
-  "description": "A CI Workflow to build Android APK for internal destribution through build.io",
-  "iconName": "android-icon"
-}

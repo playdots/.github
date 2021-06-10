@@ -1,0 +1,5 @@
+{
+  "name": "iOS Store Builds",
+  "description": "A CI Workflow to build iOS IPA and upload it to Testflight as well as Buildy.io",
+  "iconName": "ios-icon"
+}

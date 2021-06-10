@@ -1,0 +1,98 @@
+##CONFIGURE## Name of the workflow
+name: Android Buildy Build
+
+# This workflow is setup to make Android builds and upload them to Buildy.io
+
+# Controls when the action will run. 
+# ##CONFIGURE## Setup the triggers to your project needs for a full list of triggers please refer to
+# https://docs.github.com/en/actions/reference/events-that-trigger-workflows 
+on:
+  workflow_dispatch:
+
+env:
+  PRIVATE_REPO_ACCESS_TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+  AWS_BUILDY_BUCKET: ${{ secrets.AWS_BUILDY_BUCKET }}
+
+  BUILD_NAME: ##CONFIGURE## (e.g GardenTails) #name of the project on Buildy.io (Not the same as the name of the game on the device thats set in Unity)
+  TARGET: Android #options(Android, iOS)
+  STABILITY: Develop #options (Develop, Release, Prototype, etc..)
+
+  PREPROCESSOR_ID: ##CONFIGURE## (e.g AndroidSandboxDev) #this is set in the project setting under Envelope/Builder
+  BUILD_OPTIONS: ##CONFIGURE## (e.g -Development or '' for no flags) #Can include any flags from https://docs.unity3d.com/ScriptReference/BuildOptions.html 
+  
+  ANDROID_BUILD_PATH: ${{ format('{0}/build/Android', github.workspace) }}
+  ANDROID_BUILD_NAME: Android #name of the produced file $ANDROID_BUILD_NAME.apk or ANDROID_BUILD_NAME.aab
+  
+  Target_Lane: buildy #for a list of available lanes go to https://github.com/playdots/builder-fastlane/tree/master/fastlane
+
+jobs:
+  build-unity:
+    name: Build Unity
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          submodules: 'true'
+          lfs: 'true'
+
+      # Cache
+      - uses: actions/cache@v2
+        with:
+          path: Library
+          key: ${{ github.workflow }}-Library-${{ github.sha }}
+          restore-keys: |
+            ${{ github.workflow }}-Library
+
+      # Sets up the NPM registry authentication for the Unity Package Manager.
+      - name: Set UPM auth
+        shell: bash
+        run: |
+          mkdir $RUNNER_TEMP/_github_home
+          touch $RUNNER_TEMP/_github_home/.upmconfig.toml
+          echo "$UPM_AUTH" > $RUNNER_TEMP/_github_home/.upmconfig.toml
+        env:
+          UPM_AUTH: ${{ secrets.UPM_AUTH }}
+
+      # Build
+      - name: Unity - Builder
+        # if: env.FAKE_BUILD == 'false'
+        id: builder
+        uses: game-ci/unity-builder@v2
+        with:
+          targetPlatform: ${{ env.TARGET }}
+          buildMethod: Envelope.Builder.Editor.CI.Build
+          customParameters: -preprocessId ${{ env.PREPROCESSOR_ID }} ${{ env.BUILD_OPTIONS }}
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      #checkout the fastlane repository
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          repository: 'playdots/builder-fastlane'
+          path: 'builder-fastlane'
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          working-directory: './builder-fastlane/'
+          bundler-cache: true
+      
+      - name: Run Fastlane
+        run: (cd builder-fastlane ; bundle exec fastlane android $LANE)
+        env:
+          LANE: ${{ env.Target_Lane }}
+          METADATA: ${{ format('{{"GitBranch":"{0}","GitCommit":"{1}","GitUrl":"{2}"}}', github.ref, github.sha, github.repository) }}
+          BUILDY_META_DIRECTORY: '.buildy-web-metadata'

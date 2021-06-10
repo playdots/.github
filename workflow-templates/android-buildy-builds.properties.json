@@ -1,0 +1,5 @@
+{
+  "name": "Android Buildy Builds",
+  "description": "A CI Workflow to build Android APK for internal destribution through Buildy.io",
+  "iconName": "android-icon"
+}

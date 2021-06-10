@@ -1,0 +1,5 @@
+{
+  "name": "Android Store Builds",
+  "description": "A CI Workflow to build Android AAB and upload it to Google Play Store (Internal or Alpha) Tracks, As well as APK to Buildy.io",
+  "iconName": "android-icon"
+}
